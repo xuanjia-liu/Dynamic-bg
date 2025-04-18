@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Short Trail Attracting Blue Nebula</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #CDEBFF; display: flex; justify-content: center; align-items: center; height: 100vh; cursor: crosshair; }
+        #mainCanvas { position: absolute; top: 0; left: 0; z-index: 1; will-change: filter; }
+        .offscreen-canvas { display: none; position: absolute; top: -9999px; left: -9999px; }
+    </style>
+</head>
+<body>
+    <canvas id="mainCanvas"></canvas>
+
+    <script>
+        const mainCanvas = document.getElementById('mainCanvas');
+        const mainCtx = mainCanvas.getContext('2d');
+
+        // --- Blur Levels & Offscreen Canvases ---
+        const blurLevels = [ { amount: 2 }, { amount: 4 }, { amount: 6 } ]; // Indices 0, 1, 2
+        blurLevels.forEach(level => {
+            level.canvas = document.createElement('canvas');
+            level.canvas.className = 'offscreen-canvas';
+            level.ctx = level.canvas.getContext('2d');
+        });
+
+        let width, height;
+        let particles = [];
+        const particleCount = 800;
+        const maxDepth = 5;
+
+        // --- Mouse State & Interaction Parameters ---
+        let mouse = { x: null, y: null, radius: 100, repelForce: 0.6 }; // Radius for repulsion
+        let isMouseDown = false;
+        const attractionForce = 0.08;
+        const minAttractionDist = 15;
+        const attractionRadius = 250; // Only attract particles within this pixel radius
+
+
+        // --- Depth of Field Parameters ---
+        const focalDepth = 1.8;
+        const focusRange = 2.0;
+        const totalDepthOutsideFocus = Math.max(0, maxDepth - focusRange);
+        const depthSteps = totalDepthOutsideFocus / (blurLevels.length * 2);
+
+        // --- Particle creation phases ---
+        let isInitializing = true; let initPhase = 0;
+        const initPhaseCount = 10;
+
+        // --- Color Setup (Bright Blues Only) ---
+        const brightBlueColors = [
+            '#00FFFF', '#7DF9FF', '#AFEEEE', '#B0E0FF', '#ADD8E6', '#87CEEB',
+            '#87CEFA', '#00BFFF', '#1E90FF', '#E0FFFF', '#F0FFFF', '#FFFFFF'
+        ];
+        if (brightBlueColors.length === 0) brightBlueColors.push('#FFFFFF');
+
+
+        // --- Particle Class ---
+        class Particle {
+             constructor(isInitialPhase = false) { /* ... constructor ... */
+                 this.state = 'FADE_IN'; this.age = 0; this.lifespan = 1; this.fadeInDuration = 60; this.fadeOutDuration = 80; this.opacity = 0; this.x=0; this.y=0; this.z=maxDepth;
+                 this.reset(true, isInitialPhase);
+             }
+             reset(isInitial = true, isInitialPhase = false) { /* ... reset logic ... */
+                 if (!width || !height) return;
+                 this.state = 'FADE_IN'; this.age = 0; this.lifespan = 400 + Math.random() * 600; this.fadeInDuration = 60; this.fadeOutDuration = 80; this.opacity = 0;
+                 if (isInitialPhase) { this.age = Math.floor(Math.random() * this.lifespan * 0.8); if (this.age >= this.lifespan - this.fadeOutDuration) { this.state = 'FADE_OUT'; const fadeOutAge = this.age - (this.lifespan - this.fadeOutDuration); this.opacity = 0.85 * Math.max(0, 1 - fadeOutAge / this.fadeOutDuration); } else if (this.age >= this.fadeInDuration) { this.state = 'ACTIVE'; this.opacity = 0.85; } else { this.state = 'FADE_IN'; this.opacity = (this.age / this.fadeInDuration) * 0.85; } }
+                 this.z = isInitial && !isInitialPhase ? (Math.random() * maxDepth) : maxDepth; const safeZ = Math.max(0.1, this.z); this.x = (Math.random() - 0.5) * width * (maxDepth / safeZ); this.y = (Math.random() - 0.5) * height * (maxDepth / safeZ);
+                 this.px = 0; this.py = 0; this.scale = 0; this.vx = (Math.random() - 0.5) * 0.1; this.vy = (Math.random() - 0.5) * 0.1; this.gravity = 0.002; this.baseRadius = 1.2 + Math.random() * 1.6; this.blurLevel = -1;
+                 this.color = brightBlueColors[Math.floor(Math.random() * brightBlueColors.length)];
+             }
+             update() { /* ... Update logic ... */
+                 if (!width || !height) return; this.age++;
+                 // State Transitions & Opacity
+                 if (this.state === 'FADE_IN' && this.age >= this.fadeInDuration) { this.state = 'ACTIVE'; this.opacity = 0.85; } else if (this.state === 'ACTIVE' && this.age >= this.lifespan - this.fadeOutDuration) { this.state = 'FADE_OUT'; }
+                 if (this.state === 'FADE_IN') { this.opacity = (this.age / this.fadeInDuration) * 0.85; } else if (this.state === 'FADE_OUT') { const effAge = Math.max(0, this.age - (this.lifespan - this.fadeOutDuration)); this.opacity = 0.85 * (1 - effAge / this.fadeOutDuration); } else { this.opacity = 0.85; }
+                 this.opacity = Math.max(0, Math.min(this.opacity, 0.85));
+                 // Reset Condition
+                 if (this.age >= this.lifespan || (this.opacity <= 0.001 && this.state === 'FADE_OUT')) { this.reset(false); return; }
+                 // Depth & Position Update
+                 this.z -= 0.01; if (this.z <= 0.2) { if (this.state !== 'FADE_OUT') { this.state = 'FADE_OUT'; this.age = Math.max(this.age, this.lifespan - this.fadeOutDuration); } this.z = 0.2; }
+                 this.scale = maxDepth / (this.z + maxDepth * 0.2); this.px = this.x * this.scale + width / 2; this.py = this.y * this.scale + height / 2; this.x += this.vx; this.y += this.vy;
+                 // Gravity
+                 const dx_g=-this.x; const dy_g=-this.y; const dSq_g=dx_g*dx_g+dy_g*dy_g; if(dSq_g>1){ const d_g=Math.sqrt(dSq_g); const pF=this.gravity/(d_g*0.5); this.vx+=(dx_g/d_g)*pF; this.vy+=(dy_g/d_g)*pF; }
+
+                 // Mouse Interactions
+                 if (mouse.x !== null && mouse.y !== null) {
+                     const dx_m = this.px - mouse.x; const dy_m = this.py - mouse.y;
+                     const dist_m = Math.sqrt(dx_m*dx_m + dy_m*dy_m);
+                     // Attraction
+                     if (isMouseDown && dist_m < attractionRadius) {
+                         if (dist_m > minAttractionDist) { const attractDirX = -dx_m / dist_m; const attractDirY = -dy_m / dist_m; const force = attractionForce * (1 - dist_m / attractionRadius); const fsa = Math.max(0.05, this.scale); this.vx += attractDirX * force / fsa; this.vy += attractDirY * force / fsa; }
+                     }
+                     // Repulsion
+                     else if (!isMouseDown && dist_m < mouse.radius && dist_m > 0 && this.blurLevel !== blurLevels.length - 1) {
+                         const repelDirX = dx_m / dist_m; const repelDirY = dy_m / dist_m; const force = (mouse.radius - dist_m) / mouse.radius * mouse.repelForce; const fsa = Math.max(0.1, this.scale); this.vx += repelDirX * force / fsa; this.vy += repelDirY * force / fsa;
+                     }
+                 }
+
+                 // Screen Bounds Check & Fade
+                 const margin = 50; /* ... bounds checking ... */
+                 if(this.px<margin||this.px>width-margin||this.py<margin||this.py>height-margin){if(this.state!=='FADE_OUT'){this.state='FADE_OUT';this.age=Math.max(this.age,this.lifespan-this.fadeOutDuration);}}
+                 if(this.px<-100||this.px>width+100||this.py<-100||this.py>height+100){if(this.state==='FADE_OUT')this.opacity*=0.9;else{this.state='FADE_OUT';this.age=this.lifespan-10;}}
+                 // Radius & Blur Level Calculation
+                 this.radius = this.baseRadius * this.scale; const depthDiff = Math.abs(this.z - focalDepth); const focusBoundary = focusRange / 2;
+                 if(depthDiff<=focusBoundary){this.blurLevel=-1;}else{const distOut=depthDiff-focusBoundary; let levelIdx=depthSteps>0?Math.floor(distOut/depthSteps):blurLevels.length-1; this.blurLevel=Math.max(0,Math.min(levelIdx,blurLevels.length-1));}
+             }
+             draw(ctx) { /* ... Draw logic unchanged ... */
+                  if(this.radius>0.1&&this.opacity>0.01&&Number.isFinite(this.px)&&Number.isFinite(this.py)){ctx.beginPath();ctx.arc(this.px,this.py,this.radius,0,Math.PI*2);ctx.fillStyle=this.color;ctx.globalAlpha=this.opacity;ctx.fill();}
+             }
+        }
+
+        // --- Setup Function --- (Unchanged)
+        function setup() { /* ... setup canvas, particles, mouse ... */
+            width=mainCanvas.width=window.innerWidth; height=mainCanvas.height=window.innerHeight;
+            blurLevels.forEach(level=>{level.canvas.width=width;level.canvas.height=height;});
+            particles=[]; isInitializing=true; initPhase=0;
+            mouse.x=null; mouse.y=null; isMouseDown = false;
+        }
+
+        // --- Animation Loop --- (Modified Trail Alpha)
+        function animate() {
+             if (!width || !height) { requestAnimationFrame(animate); return; }
+             if (isInitializing) { /* ... initialization ... */
+                 const ppp=Math.ceil(particleCount/initPhaseCount); const s=initPhase*ppp; const e=Math.min(s+ppp,particleCount);
+                 if(particles.length<particleCount){for(let i=s; i<e && particles.length<particleCount; i++){particles.push(new Particle(true));}initPhase++;}else{isInitializing=false;}
+             }
+             // 1. VERY FAST TRAIL FADE OVERLAY
+             mainCtx.fillStyle='rgba(216, 240, 255, 0.6)'; // Increased alpha significantly
+             mainCtx.globalCompositeOperation='source-over';
+             mainCtx.globalAlpha=1.0;
+             mainCtx.fillRect(0,0,width,height);
+
+             // 2. Clear Blur Layers
+             blurLevels.forEach(level=>{level.ctx.clearRect(0,0,width,height);});
+             // 3. Update Particles
+             particles.forEach(p=>p.update());
+             // 4. Draw Particles
+             mainCtx.globalAlpha=1.0;particles.forEach(p=>{if(p.blurLevel===-1){p.draw(mainCtx);}else if(p.blurLevel>=0&&p.blurLevel<blurLevels.length){p.draw(blurLevels[p.blurLevel].ctx);}});
+             // 5. Composite Layers
+             mainCtx.globalAlpha=1.0;blurLevels.forEach((level)=>{if(level.amount>0){mainCtx.filter=`blur(${level.amount}px)`;mainCtx.drawImage(level.canvas,0,0);mainCtx.filter='none';}else{mainCtx.drawImage(level.canvas,0,0);}});
+             mainCtx.filter='none';
+
+             requestAnimationFrame(animate);
+         }
+
+        // --- Event Listeners --- (Unchanged)
+        window.addEventListener('resize', setup);
+        mainCanvas.addEventListener('mousemove', (event) => { const r=mainCanvas.getBoundingClientRect(); mouse.x=event.clientX-r.left; mouse.y=event.clientY-r.top; });
+        mainCanvas.addEventListener('mouseout', () => { mouse.x=null; mouse.y=null; isMouseDown = false; });
+        mainCanvas.addEventListener('mousedown', (event) => { if (mouse.x !== null) { isMouseDown = true; } });
+        mainCanvas.addEventListener('mouseup', (event) => { isMouseDown = false; });
+
+        // --- Initialize ---
+        if (mainCanvas) { setup(); animate(); } else { console.error("Canvas element not found on initial load."); }
+
+    </script>
+</body>
+</html>

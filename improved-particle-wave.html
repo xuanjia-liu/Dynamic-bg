@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced Particle Wave Effect</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #000;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Initialize Three.js scene
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.body.appendChild(renderer.domElement);
+
+        // Camera position - adjusted distance
+        camera.position.set(0, 8, 60);
+        camera.lookAt(0, -5, 0);
+        
+        // Add touch support for mobile devices
+        function handleTouchMove(event) {
+            if (event.touches.length > 0) {
+                const touch = event.touches[0];
+                mouseX = (touch.clientX / window.innerWidth) * 2 - 1;
+                mouseY = (touch.clientY / window.innerHeight) * 2 - 1;
+                
+                // Set target camera angles
+                targetCameraX = -mouseY * maxCameraTilt;
+                targetCameraY = mouseX * maxCameraTilt;
+                
+                // Prevent scrolling
+                event.preventDefault();
+            }
+        }
+        
+        window.addEventListener('touchmove', handleTouchMove, { passive: false });
+
+        // Create particles
+        const particleCount = 25000;
+        const particleGeometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(particleCount * 3);
+        const scales = new Float32Array(particleCount);
+        const fadeValues = new Float32Array(particleCount);
+        const flickerValues = new Float32Array(particleCount);
+        const glowTypeValues = new Float32Array(particleCount);
+        
+        // Grid dimensions - wider grid
+        const gridSize = 160;
+        const halfGrid = gridSize / 2;
+        const spacing = 1;
+
+        // Set initial positions in a grid with some randomness
+        let i = 0;
+        for (let x = -halfGrid; x < halfGrid; x += spacing) {
+            for (let z = -halfGrid; z < halfGrid; z += spacing) {
+                if (i < particleCount) {
+                    positions[i * 3] = x + (Math.random() - 0.5) * 0.5;     // x
+                    positions[i * 3 + 1] = 0;                               // y (will be animated)
+                    positions[i * 3 + 2] = z + (Math.random() - 0.5) * 0.5; // z
+                    
+                    // Vary the particle size
+                    scales[i] = Math.random() * 1.5 + 0.5;
+                    
+                    // Calculate fade value for edges (1.0 at center, 0.0 at edge)
+                    const distanceFromCenter = Math.sqrt(x*x + z*z);
+                    const maxDistance = halfGrid - 10; // Start fading 10 units from the edge
+                    
+                    if (distanceFromCenter > maxDistance) {
+                        // Smooth fade out for particles near the edge
+                        fadeValues[i] = 1.0 - ((distanceFromCenter - maxDistance) / 10);
+                    } else {
+                        // Full opacity for interior particles
+                        fadeValues[i] = 1.0;
+                    }
+                    
+                    // Add random seed for flicker effect - will be used in the shader
+                    // This gives each particle a unique "identity" for flicker timing
+                    flickerValues[i] = Math.random();
+                    
+                    // Assign different glow types to particles
+                    glowTypeValues[i] = Math.floor(Math.random() * 4); // 0-3 different glow types
+                    
+                    i++;
+                }
+            }
+        }
+
+        particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        particleGeometry.setAttribute('scale', new THREE.BufferAttribute(scales, 1));
+        particleGeometry.setAttribute('fade', new THREE.BufferAttribute(fadeValues, 1));
+        particleGeometry.setAttribute('flicker', new THREE.BufferAttribute(flickerValues, 1));
+        particleGeometry.setAttribute('glowType', new THREE.BufferAttribute(glowTypeValues, 1));
+
+        // Create shader material for particles
+        const particleMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+                color: { value: new THREE.Color(0x0088ff) },
+                color2: { value: new THREE.Color(0x8800ff) }, // Second color for gradient (purple)
+                color3: { value: new THREE.Color(0x00ffaa) }, // Third color for outer glow
+                time: { value: 0 },
+                lightPosition: { value: new THREE.Vector3(-1, 1, 0.5) } // Light from top-left
+            },
+            vertexShader: `
+                attribute float scale;
+                attribute float fade;
+                attribute float flicker;
+                attribute float glowType;
+                uniform float time;
+                uniform vec3 lightPosition;
+                
+                varying float vReflection;
+                varying float vElevation;
+                varying float vFade;
+                varying vec2 vUv;
+                varying float vColorMix;
+                varying float vFlicker;
+                varying float vGlowType;
+                
+                void main() {
+                    // Pass attributes to fragment shader
+                    vFade = fade;
+                    vFlicker = flicker;
+                    vGlowType = glowType;
+                    
+                    // Calculate position for gradient
+                    vUv = vec2(position.x, position.z) / 160.0 + 0.5; // Normalize to 0-1 range
+                    
+                    // Calculate wave pattern
+                    float wavelength = 10.0;
+                    float amplitude = 4.0;
+                    float speed = 0.5;
+                    
+                    vec3 pos = position;
+                    
+                    // Multiple overlapping waves for more complex motion
+                    float wave1 = sin(pos.x * 0.1 + pos.z * 0.1 + time * speed) * amplitude;
+                    float wave2 = sin(pos.x * 0.05 - pos.z * 0.07 + time * speed * 0.7) * amplitude * 0.5;
+                    float wave3 = cos(pos.x * 0.08 + pos.z * 0.05 + time * speed * 1.3) * amplitude * 0.3;
+                    
+                    pos.y = wave1 + wave2 + wave3;
+                    vElevation = pos.y;
+                    
+                    // Calculate color mix factor based on position and time (faster movement)
+                    // This creates a moving gradient pattern
+                    vColorMix = sin(pos.x * 0.03 + pos.z * 0.03 + time * 0.4) * 0.5 + 0.5;
+                    
+                    // Calculate surface normal based on the wave derivatives
+                    float dx = 0.1;
+                    float dz = 0.1;
+                    
+                    // Sample neighboring points to calculate surface gradient
+                    float y_dx = sin((pos.x + dx) * 0.1 + pos.z * 0.1 + time * speed) * amplitude +
+                                sin((pos.x + dx) * 0.05 - pos.z * 0.07 + time * speed * 0.7) * amplitude * 0.5 +
+                                cos((pos.x + dx) * 0.08 + pos.z * 0.05 + time * speed * 1.3) * amplitude * 0.3;
+                                
+                    float y_dz = sin(pos.x * 0.1 + (pos.z + dz) * 0.1 + time * speed) * amplitude +
+                                sin(pos.x * 0.05 - (pos.z + dz) * 0.07 + time * speed * 0.7) * amplitude * 0.5 +
+                                cos(pos.x * 0.08 + (pos.z + dz) * 0.05 + time * speed * 1.3) * amplitude * 0.3;
+                    
+                    // Approximate normal using partial derivatives
+                    vec3 normal = normalize(vec3(-(y_dx - pos.y)/dx, 1.0, -(y_dz - pos.y)/dz));
+                    
+                    // Calculate light reflection
+                    vec3 lightDir = normalize(lightPosition);
+                    float reflection = max(0.0, dot(normal, lightDir));
+                    
+                    // Enhance reflection with specular component
+                    vec3 viewDir = normalize(vec3(0.0, 0.0, 1.0) - pos);
+                    vec3 halfwayDir = normalize(lightDir + viewDir);
+                    float specular = pow(max(dot(normal, halfwayDir), 0.0), 32.0);
+                    
+                    vReflection = reflection * 0.7 + specular * 0.3;
+                    
+                    // Dynamic particle size based on glow type
+                    float dynamicScale = scale;
+                    
+                    // Make particles in higher positions brighter by adjusting their size
+                    if (pos.y > 0.0) {
+                        dynamicScale *= 1.0 + pos.y * 0.1;
+                    }
+                    
+                    // Boost particles that reflect light (toned down)
+                    dynamicScale *= 1.0 + vReflection * 0.3;
+                    
+                    // Different glow types have slightly different sizes (increased for wider radius)
+                    if (glowType < 1.0) {
+                        dynamicScale *= 1.1; // Type 0: Slightly larger (was 0.9)
+                    } else if (glowType < 2.0) {
+                        dynamicScale *= 1.3; // Type 1: Larger (was 1.1)
+                    } else if (glowType < 3.0) {
+                        dynamicScale *= 1.4; // Type 2: Even larger (was 1.2)
+                    } else {
+                        dynamicScale *= 1.6; // Type 3: Largest glow (was 1.4)
+                    }
+                    
+                    vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+                    
+                    // Reduced particle size for less intense glow effect
+                    gl_PointSize = dynamicScale * (300.0 / -mvPosition.z);
+                    gl_Position = projectionMatrix * mvPosition;
+                }
+            `,
+            fragmentShader: `
+                uniform vec3 color;
+                uniform vec3 color2;
+                uniform vec3 color3;
+                uniform float time;
+                
+                varying float vReflection;
+                varying float vElevation;
+                varying float vFade;
+                varying vec2 vUv;
+                varying float vColorMix;
+                varying float vFlicker;
+                varying float vGlowType;
+                
+                // Helper function for HSL to RGB conversion
+                float hsl2rgb_helper(float p, float q, float t) {
+                    if (t < 0.0) t += 1.0;
+                    if (t > 1.0) t -= 1.0;
+                    if (t < 1.0 / 6.0) return p + (q - p) * 6.0 * t;
+                    if (t < 1.0 / 2.0) return q;
+                    if (t < 2.0 / 3.0) return p + (q - p) * (2.0 / 3.0 - t) * 6.0;
+                    return p;
+                }
+                
+                // HSL to RGB conversion function
+                vec3 hsl2rgb(vec3 hsl) {
+                    vec3 rgb;
+                    
+                    if (hsl.y == 0.0) {
+                        rgb = vec3(hsl.z); // Luminance
+                    } else {
+                        float q = hsl.z < 0.5 ? hsl.z * (1.0 + hsl.y) : hsl.z + hsl.y - hsl.z * hsl.y;
+                        float p = 2.0 * hsl.z - q;
+                        
+                        float rk = mod(hsl.x + 1.0 / 3.0, 1.0);
+                        float gk = mod(hsl.x, 1.0);
+                        float bk = mod(hsl.x - 1.0 / 3.0, 1.0);
+                        
+                        rgb.r = hsl2rgb_helper(p, q, rk);
+                        rgb.g = hsl2rgb_helper(p, q, gk);
+                        rgb.b = hsl2rgb_helper(p, q, bk);
+                    }
+                    
+                    return rgb;
+                }
+                
+                // RGB to HSL conversion function
+                vec3 rgb2hsl(vec3 c) {
+                    float h = 0.0;
+                    float s = 0.0;
+                    float l = 0.0;
+                    float r = c.r;
+                    float g = c.g;
+                    float b = c.b;
+                    float cMin = min(r, min(g, b));
+                    float cMax = max(r, max(g, b));
+                    
+                    l = (cMax + cMin) / 2.0;
+                    if (cMax > cMin) {
+                        float cDelta = cMax - cMin;
+                        
+                        s = l < 0.5 ? cDelta / (cMax + cMin) : cDelta / (2.0 - cMax - cMin);
+                        
+                        if (r == cMax) {
+                            h = (g - b) / cDelta + (g < b ? 6.0 : 0.0);
+                        } else if (g == cMax) {
+                            h = (b - r) / cDelta + 2.0;
+                        } else {
+                            h = (r - g) / cDelta + 4.0;
+                        }
+                        h /= 6.0;
+                    }
+                    return vec3(h, s, l);
+                }
+                
+                void main() {
+                    // Create a circular particle with gradually fading edges
+                    float r = distance(gl_PointCoord, vec2(0.5, 0.5));
+                    
+                    // Instead of hard cutoff, create a gradual fade for the outer edge
+                    float edgeFade = 1.0;
+                    if (r > 0.5) {
+                        // Smooth transition between 0.5 and 0.8 radius
+                        edgeFade = 1.0 - smoothstep(0.5, 0.8, r);
+                        
+                        // Discard only when completely transparent
+                        if (edgeFade <= 0.0) {
+                            discard;
+                        }
+                    }
+                    
+                    // Base colors calculation
+                    // Convert colors to HSL
+                    vec3 hsl1 = rgb2hsl(color);
+                    vec3 hsl2 = rgb2hsl(color2);
+                    vec3 hsl3 = rgb2hsl(color3);
+                    
+                    // Animate the hue by adding time (increased speed)
+                    float timeShift = sin(time * 0.6) * 0.15; // Increased from 0.2 to 0.6 for faster animation
+                    hsl1.x = mod(hsl1.x + timeShift, 1.0);
+                    hsl2.x = mod(hsl2.x + timeShift, 1.0);
+                    hsl3.x = mod(hsl3.x + timeShift * 1.2, 1.0);  // Slightly different rate for third color
+                    
+                    // Create gradient between the colors in HSL space
+                    vec3 mixedHsl = mix(hsl1, hsl2, vColorMix);
+                    
+                    // Increase saturation for more vibrance
+                    mixedHsl.y = min(mixedHsl.y * 1.3, 1.0);
+                    
+                    // Convert back to RGB
+                    vec3 baseColor = hsl2rgb(mixedHsl);
+                    vec3 outerGlowColor = hsl2rgb(hsl3);
+                    
+                    // Multiple glow layers based on glow type
+                    // Each glow type has different characteristics
+                    
+                    // Default values
+                    float innerGlowIntensity = 1.0;
+                    float midGlowIntensity = 0.0;  
+                    float outerGlowIntensity = 0.0;
+                    float glowPulse = 0.0;
+                    
+                    // Calculate time-based pulse effects
+                    float slowPulse = sin(time * 0.7 + vFlicker * 6.28) * 0.5 + 0.5;
+                    float fastPulse = sin(time * 1.5 + vFlicker * 6.28) * 0.5 + 0.5;
+                    
+                    // Different glow styles based on glow type
+                    if (vGlowType < 1.0) {
+                        // Type 0: Classic intensity with wider outer glow
+                        innerGlowIntensity = pow(1.0 - r * 2.0, 1.4) * 0.7; // Reduced intensity
+                        midGlowIntensity = pow(1.0 - r * 2.0, 0.9) * 0.5;   // Softer mid glow
+                        outerGlowIntensity = pow(1.0 - r * 2.0, 0.6) * 0.25; // Extended outer glow
+                        glowPulse = slowPulse * 0.15;
+                    } 
+                    else if (vGlowType < 2.0) {
+                        // Type 1: Very soft diffuse glow with extended radius
+                        innerGlowIntensity = pow(1.0 - r * 2.0, 1.2) * 0.6;
+                        midGlowIntensity = pow(1.0 - r * 2.0, 0.7) * 0.55;
+                        outerGlowIntensity = pow(1.0 - r * 2.0, 0.4) * 0.4;
+                        glowPulse = fastPulse * 0.12;
+                    }
+                    else if (vGlowType < 3.0) {
+                        // Type 2: Ring-like glow with wider edge
+                        float ringEffect = smoothstep(0.0, 0.5, r) * smoothstep(0.5, 0.25, r) * 1.2;
+                        innerGlowIntensity = pow(1.0 - r * 2.0, 1.3) * 0.55 + ringEffect * 0.3;
+                        midGlowIntensity = pow(1.0 - r * 2.0, 0.65) * 0.5 + ringEffect * 0.2;
+                        outerGlowIntensity = pow(1.0 - r * 2.0, 0.35) * 0.35;
+                        glowPulse = slowPulse * 0.2;
+                    }
+                    else {
+                        // Type 3: Extended chromatic glow
+                        innerGlowIntensity = pow(1.0 - r * 2.0, 1.6) * 0.65;
+                        midGlowIntensity = pow(1.0 - r * 2.0, 0.8) * 0.6;
+                        outerGlowIntensity = pow(1.0 - r * 2.0, 0.3) * 0.5;
+                        glowPulse = fastPulse * 0.25;
+                    }
+                    
+                    // Apply time-based pulsing to glow
+                    innerGlowIntensity *= 1.0 + glowPulse;
+                    midGlowIntensity *= 1.0 + glowPulse * 1.2;
+                    outerGlowIntensity *= 1.0 + glowPulse * 1.5;
+                    
+                    // Apply light reflection effect (toned down)
+                    float reflectionValue = vReflection * 0.6; // Reduced from 1.5 to 0.6
+                    
+                    // Combine all glow layers
+                    vec3 innerGlow = baseColor * innerGlowIntensity;
+                    vec3 midGlow = mix(baseColor, vec3(0.8, 0.9, 1.0), 0.3) * midGlowIntensity;
+                    vec3 outerGlow = mix(baseColor, outerGlowColor, 0.7) * outerGlowIntensity;
+                    
+                    // Combine the layers
+                    vec3 combinedGlow = innerGlow + midGlow + outerGlow;
+                    
+                    // Add softer highlight for reflected areas (toned down)
+                    vec3 highlightColor = vec3(0.6, 0.7, 0.9) * reflectionValue * 0.4 * innerGlowIntensity;
+                    combinedGlow += highlightColor;
+                    
+                    // Calculate alpha based on all glow layers and apply edge fade
+                    float baseAlpha = innerGlowIntensity + midGlowIntensity * 0.8 + outerGlowIntensity * 0.6;
+                    float alpha = baseAlpha * (1.0 + reflectionValue * 0.3) * vFade * edgeFade;
+                    
+                    // Apply chromatic aberration effect for type 3 particles
+                    if (vGlowType >= 3.0) {
+                        // Shift red channel slightly (increased offset for wider effect)
+                        float rOffset = 0.035 * r;
+                        float rDistance = distance(gl_PointCoord, vec2(0.5 - rOffset, 0.5));
+                        float rIntensity = 1.0 - rDistance * 2.0;
+                        rIntensity = max(0.0, pow(rIntensity, 1.3)); // Lower power = wider spread
+                        
+                        // Shift blue channel slightly in opposite direction
+                        float bOffset = 0.025 * r;
+                        float bDistance = distance(gl_PointCoord, vec2(0.5 + bOffset, 0.5));
+                        float bIntensity = 1.0 - bDistance * 2.0;
+                        bIntensity = max(0.0, pow(bIntensity, 1.3)); // Lower power = wider spread
+                        
+                        // Apply the chromatic effect (reduced intensity)
+                        combinedGlow.r += rIntensity * 0.15; // Was 0.2
+                        combinedGlow.b += bIntensity * 0.1;  // Was 0.15
+                    }
+                    
+                    // Apply random flickering to some particles
+                    if (vFlicker > 0.85) {
+                        // Create a flickering effect with sin waves of different frequencies
+                        float flickerSpeed = vFlicker * 10.0 + 5.0; // Different speeds for different particles
+                        float flickerPhase = vFlicker * 100.0; // Different phases
+                        
+                        float flicker1 = sin(time * flickerSpeed + flickerPhase) * 0.5 + 0.5;
+                        float flicker2 = sin(time * (flickerSpeed * 0.7) + flickerPhase * 1.3) * 0.5 + 0.5;
+                        float flickerFactor = flicker1 * flicker2;
+                        
+                        // Apply flicker to both color and alpha
+                        combinedGlow *= 0.7 + flickerFactor * 0.9; // Brightness variation
+                        alpha *= 0.8 + flickerFactor * 0.4; // Slight alpha variation
+                    }
+                    
+                    gl_FragColor = vec4(combinedGlow, alpha);
+                }
+            `,
+            transparent: true,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending
+        });
+
+        // Create the particle system
+        const particleSystem = new THREE.Points(particleGeometry, particleMaterial);
+        scene.add(particleSystem);
+
+        // Add subtle ambient light
+        const ambientLight = new THREE.AmbientLight(0x001133);
+        scene.add(ambientLight);
+
+        // Add directional light from top-left
+        const directionalLight = new THREE.DirectionalLight(0x0088ff, 0.4);
+        directionalLight.position.set(-1, 1, 0.5);
+        scene.add(directionalLight);
+
+        // Animation variables
+        const clock = new THREE.Clock();
+        
+        // Mouse tracking for camera control
+        let mouseX = 0;
+        let mouseY = 0;
+        let targetCameraX = 0;
+        let targetCameraY = 0;
+        let currentCameraX = 0;
+        let currentCameraY = 0;
+        const cameraSmoothing = 0.05; // Controls how gradually the camera moves
+        const maxCameraTilt = 0.15; // Controls the maximum camera angle change
+        
+        // Add mouse movement listener
+        window.addEventListener('mousemove', (event) => {
+            // Calculate normalized mouse position (-1 to 1)
+            mouseX = (event.clientX / window.innerWidth) * 2 - 1;
+            mouseY = (event.clientY / window.innerHeight) * 2 - 1;
+            
+            // Set target camera angles
+            targetCameraX = -mouseY * maxCameraTilt;
+            targetCameraY = mouseX * maxCameraTilt;
+        });
+        
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // Smooth camera movement
+            currentCameraX += (targetCameraX - currentCameraX) * cameraSmoothing;
+            currentCameraY += (targetCameraY - currentCameraY) * cameraSmoothing;
+            
+            // Apply rotation to camera (orbit around the center)
+            const cameraDistance = 60;
+            const cameraHeight = 8;
+            const lookAtY = -5;
+            
+            // Calculate camera position on an orbital path
+            const cameraOrbitX = Math.sin(currentCameraY) * cameraDistance;
+            const cameraOrbitZ = Math.cos(currentCameraY) * cameraDistance;
+            const cameraOrbitY = cameraHeight + currentCameraX * 20;
+            
+            // Update camera position gradually
+            camera.position.set(cameraOrbitX, cameraOrbitY, cameraOrbitZ);
+            camera.lookAt(0, lookAtY, 0);
+            
+            // Update time uniform for shader animation
+            particleMaterial.uniforms.time.value = clock.getElapsedTime();
+            
+            // Slowly rotate the entire scene for added dimension
+            particleSystem.rotation.y = clock.getElapsedTime() * 0.05;
+            
+            // Render the scene
+            renderer.render(scene, camera);
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Start animation loop
+        animate();
+    </script>
+</body>
+</html>

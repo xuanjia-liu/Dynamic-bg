@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Glowing Light Blue Dots</title>
+  <style>
+    /* White background */
+    body {
+      margin: 0;
+      padding: 0;
+      background: #ffffff;
+      overflow: hidden;
+    }
+    /* Ensure the canvas fills the viewport */
+    canvas {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <canvas class="js-canvas"></canvas>
+  <script>
+    const canvas = document.querySelector(".js-canvas");
+    const ctx = canvas.getContext("2d");
+
+    // Set canvas dimensions to fill the window
+    let width = canvas.width = window.innerWidth;
+    let height = canvas.height = window.innerHeight;
+    
+    // Create an array of particles
+    const particles = [];
+    const totalParticles = 100;
+    for (let i = 0; i < totalParticles; i++) {
+      particles.push({
+        x: Math.random() * width,
+        y: Math.random() * height,
+        r: 2 + Math.random() * 3,           // Radius between 2 and 5
+        vx: -1 + Math.random() * 2,           // Horizontal velocity between -1 and 1
+        vy: -1 + Math.random() * 2,           // Vertical velocity between -1 and 1
+        alpha: 0.5 + Math.random() * 0.5      // Opacity between 0.5 and 1
+      });
+    }
+    
+    // Animation loop
+    function update() {
+      ctx.clearRect(0, 0, width, height);
+      
+      particles.forEach(p => {
+        // Update particle position
+        p.x += p.vx;
+        p.y += p.vy;
+        
+        // Bounce particles off the edges
+        if (p.x < 0 || p.x > width) p.vx = -p.vx;
+        if (p.y < 0 || p.y > height) p.vy = -p.vy;
+        
+        // Draw a glowing, light blue dot
+        ctx.save();
+        ctx.shadowColor = "rgba(173,216,230, 1)"; // light blue glow
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = "rgba(173,216,230," + p.alpha + ")";
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
+      
+      requestAnimationFrame(update);
+    }
+    
+    // Resize canvas on window resize
+    window.addEventListener("resize", () => {
+      width = canvas.width = window.innerWidth;
+      height = canvas.height = window.innerHeight;
+    });
+    
+    update();
+  </script>
+</body>
+</html>

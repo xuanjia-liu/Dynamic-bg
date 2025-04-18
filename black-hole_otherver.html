@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Animated Black Hole</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #141414;
+      overflow: hidden;
+    }
+    /* Custom element that covers the viewport */
+    black-hole {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      overflow: hidden;
+    }
+    /* Create a radial gradient overlay for the central black hole */
+    black-hole::before {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 150%;
+      height: 140%;
+      background: radial-gradient(ellipse at 50% 55%, transparent 10%, black 50%);
+      transform: translate(-50%, -50%);
+      z-index: 2;
+    }
+    /* An aura effect using a linear gradient and CSS animation */
+    black-hole .aura {
+      position: absolute;
+      top: -71.5%;
+      left: 50%;
+      width: 30%;
+      height: 140%;
+      background: linear-gradient(
+        20deg,
+        #00f8f1,
+        #ffbd1e20 16.5%,
+        #fe848f 33%,
+        #fe848f20 49.5%,
+        #00f8f1 66%,
+        #00f8f160 85.5%,
+        #ffbd1e 100%
+      ) 0 100% / 100% 200%;
+      border-radius: 0 0 100% 100%;
+      filter: blur(50px);
+      mix-blend-mode: plus-lighter;
+      opacity: 0.75;
+      transform: translate(-50%, 0);
+      animation: aura-glow 5s infinite linear;
+      z-index: 3;
+    }
+    @keyframes aura-glow {
+      0% { background-position: 0 100%; }
+      100% { background-position: 0 300%; }
+    }
+    /* An overlay for a subtle grid-like effect */
+    black-hole .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: repeating-linear-gradient(
+        transparent,
+        transparent 1px,
+        white 1px,
+        white 2px
+      );
+      mix-blend-mode: overlay;
+      opacity: 0.5;
+      z-index: 10;
+    }
+    /* Ensure the canvas fills the viewport */
+    black-hole canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      position: relative;
+      z-index: 1;
+    }
+  </style>
+</head>
+<body>
+  <black-hole>
+    <canvas class="js-canvas"></canvas>
+    <div class="aura"></div>
+    <div class="overlay"></div>
+  </black-hole>
+
+  <script type="module">
+    // Easing functions to smooth animations
+    const easingUtils = {
+      linear: t => t,
+      easeInExpo: t => t === 0 ? 0 : Math.pow(2, 10 * (t - 1)),
+      easeOutExpo: t => t === 1 ? 1 : 1 - Math.pow(2, -10 * t),
+      easeInOutExpo: t => t === 0 ? 0 : t === 1 ? 1 : t < 0.5
+          ? Math.pow(2, 20 * t - 10) / 2
+          : (2 - Math.pow(2, -20 * t + 10)) / 2
+    };
+
+    class BlackHole extends HTMLElement {
+      connectedCallback() {
+        this.canvas = this.querySelector(".js-canvas");
+        this.ctx = this.canvas.getContext("2d");
+        this.discs = [];
+        this.lines = [];
+        this.particles = [];
+        this.setSize();
+        this.setupDiscs();
+        this.setupParticles();
+        window.addEventListener("resize", () => this.onResize());
+        requestAnimationFrame(() => this.tick());
+      }
+      setSize() {
+        this.rect = this.getBoundingClientRect();
+        this.canvas.width = this.rect.width * (window.devicePixelRatio || 1);
+        this.canvas.height = this.rect.height * (window.devicePixelRatio || 1);
+      }
+      setupDiscs() {
+        // Define starting and ending properties for animated discs
+        const { width, height } = this.rect;
+        this.startDisc = {
+          x: width * 0.5,
+          y: height * 0.45,
+          w: width * 0.75,
+          h: height * 0.7
+        };
+        this.endDisc = { x: width * 0.5, y: height * 0.95, w: 0, h: 0 };
+        const totalDiscs = 100;
+        for (let i = 0; i < totalDiscs; i++) {
+          let disc = { p: i / totalDiscs };
+          this.tweenDisc(disc);
+          this.discs.push(disc);
+        }
+      }
+      setupParticles() {
+        // Create a simple set of particles to simulate matter flow
+        const { width, height } = this.rect;
+        const totalParticles = 100;
+        for (let i = 0; i < totalParticles; i++) {
+          this.particles.push({
+            x: width * Math.random(),
+            y: height * Math.random(),
+            r: 0.5 + Math.random() * 4,
+            vy: 0.5 + Math.random(),
+            sx: width * Math.random(),
+            dx: width * Math.random() - width * Math.random(),
+            c: `rgba(255, 255, 255, ${Math.random()})`
+          });
+        }
+      }
+      tweenValue(start, end, p, ease = "linear") {
+        const delta = end - start;
+        return start + delta * easingUtils[ease](p);
+      }
+      tweenDisc(disc) {
+        disc.x = this.tweenValue(this.startDisc.x, this.endDisc.x, disc.p, "easeInExpo");
+        disc.y = this.tweenValue(this.startDisc.y, this.endDisc.y, disc.p, "easeInExpo");
+        disc.w = this.tweenValue(this.startDisc.w, this.endDisc.w, disc.p);
+        disc.h = this.tweenValue(this.startDisc.h, this.endDisc.h, disc.p);
+      }
+      onResize() {
+        this.setSize();
+        this.setupDiscs();
+        this.setupParticles();
+      }
+      moveDiscs() {
+        // Increment the progress for each disc to animate shrinking and movement
+        this.discs.forEach(disc => {
+          disc.p = (disc.p + 0.001) % 1;
+          this.tweenDisc(disc);
+        });
+      }
+      moveParticles() {
+        // Animate particles moving upward to mimic matter being drawn into the black hole
+        const { height } = this.rect;
+        this.particles.forEach(p => {
+          p.y -= p.vy;
+          if (p.y < 0) {
+            p.y = height;
+          }
+        });
+      }
+      drawDiscs() {
+        const ctx = this.ctx;
+        ctx.strokeStyle = "#444";
+        ctx.lineWidth = 2;
+        this.discs.forEach(disc => {
+          ctx.beginPath();
+          ctx.ellipse(disc.x, disc.y, disc.w, disc.h, 0, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.closePath();
+        });
+      }
+      drawParticles() {
+        const ctx = this.ctx;
+        this.particles.forEach(p => {
+          ctx.fillStyle = p.c;
+          ctx.fillRect(p.x, p.y, p.r, p.r);
+        });
+      }
+      tick() {
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.moveDiscs();
+        this.moveParticles();
+        this.drawDiscs();
+        this.drawParticles();
+        requestAnimationFrame(() => this.tick());
+      }
+    }
+    customElements.define("black-hole", BlackHole);
+  </script>
+</body>
+</html>

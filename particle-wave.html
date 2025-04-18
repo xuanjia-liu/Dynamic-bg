@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Particle Wave Effect</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #000;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Initialize Three.js scene
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.body.appendChild(renderer.domElement);
+
+        // Camera position
+        camera.position.z = 50;
+
+        // Create particles
+        const particleCount = 20000;
+        const particleGeometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(particleCount * 3);
+        const scales = new Float32Array(particleCount);
+        
+        // Grid dimensions
+        const gridSize = 100;
+        const halfGrid = gridSize / 2;
+        const spacing = 1;
+
+        // Set initial positions in a grid with some randomness
+        let i = 0;
+        for (let x = -halfGrid; x < halfGrid; x += spacing) {
+            for (let z = -halfGrid; z < halfGrid; z += spacing) {
+                if (i < particleCount) {
+                    positions[i * 3] = x + (Math.random() - 0.5) * 0.5;     // x
+                    positions[i * 3 + 1] = 0;                               // y (will be animated)
+                    positions[i * 3 + 2] = z + (Math.random() - 0.5) * 0.5; // z
+                    
+                    // Vary the particle size
+                    scales[i] = Math.random() * 1.5 + 0.5;
+                    i++;
+                }
+            }
+        }
+
+        particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        particleGeometry.setAttribute('scale', new THREE.BufferAttribute(scales, 1));
+
+        // Create shader material for particles
+        const particleMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+                color: { value: new THREE.Color(0x0088ff) },
+                time: { value: 0 },
+                lightPosition: { value: new THREE.Vector3(-1, 1, 0.5) } // Light from top-left
+            },
+            vertexShader: `
+                attribute float scale;
+                uniform float time;
+                uniform vec3 lightPosition;
+                
+                varying float vReflection;
+                varying float vElevation;
+                
+                void main() {
+                    // Calculate wave pattern
+                    float wavelength = 10.0;
+                    float amplitude = 4.0;
+                    float speed = 0.5;
+                    
+                    vec3 pos = position;
+                    
+                    // Multiple overlapping waves for more complex motion
+                    float wave1 = sin(pos.x * 0.1 + pos.z * 0.1 + time * speed) * amplitude;
+                    float wave2 = sin(pos.x * 0.05 - pos.z * 0.07 + time * speed * 0.7) * amplitude * 0.5;
+                    float wave3 = cos(pos.x * 0.08 + pos.z * 0.05 + time * speed * 1.3) * amplitude * 0.3;
+                    
+                    pos.y = wave1 + wave2 + wave3;
+                    vElevation = pos.y;
+                    
+                    // Calculate surface normal based on the wave derivatives
+                    float dx = 0.1;
+                    float dz = 0.1;
+                    
+                    // Sample neighboring points to calculate surface gradient
+                    float y_dx = sin((pos.x + dx) * 0.1 + pos.z * 0.1 + time * speed) * amplitude +
+                                sin((pos.x + dx) * 0.05 - pos.z * 0.07 + time * speed * 0.7) * amplitude * 0.5 +
+                                cos((pos.x + dx) * 0.08 + pos.z * 0.05 + time * speed * 1.3) * amplitude * 0.3;
+                                
+                    float y_dz = sin(pos.x * 0.1 + (pos.z + dz) * 0.1 + time * speed) * amplitude +
+                                sin(pos.x * 0.05 - (pos.z + dz) * 0.07 + time * speed * 0.7) * amplitude * 0.5 +
+                                cos(pos.x * 0.08 + (pos.z + dz) * 0.05 + time * speed * 1.3) * amplitude * 0.3;
+                    
+                    // Approximate normal using partial derivatives
+                    vec3 normal = normalize(vec3(-(y_dx - pos.y)/dx, 1.0, -(y_dz - pos.y)/dz));
+                    
+                    // Calculate light reflection
+                    vec3 lightDir = normalize(lightPosition);
+                    float reflection = max(0.0, dot(normal, lightDir));
+                    
+                    // Enhance reflection with specular component
+                    vec3 viewDir = normalize(vec3(0.0, 0.0, 1.0) - pos);
+                    vec3 halfwayDir = normalize(lightDir + viewDir);
+                    float specular = pow(max(dot(normal, halfwayDir), 0.0), 32.0);
+                    
+                    vReflection = reflection * 0.7 + specular * 0.3;
+                    
+                    // Make particles in higher positions brighter by adjusting their size
+                    float dynamicScale = scale;
+                    if (pos.y > 0.0) {
+                        dynamicScale *= 1.0 + pos.y * 0.1;
+                    }
+                    
+                    // Boost particles that reflect light
+                    dynamicScale *= 1.0 + vReflection * 0.5;
+                    
+                    vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+                    gl_PointSize = dynamicScale * (300.0 / -mvPosition.z);
+                    gl_Position = projectionMatrix * mvPosition;
+                }
+            `,
+            fragmentShader: `
+                uniform vec3 color;
+                
+                varying float vReflection;
+                varying float vElevation;
+                
+                void main() {
+                    // Create a circular particle with soft edges
+                    float r = distance(gl_PointCoord, vec2(0.5, 0.5));
+                    if (r > 0.5) {
+                        discard;
+                    }
+                    
+                    // Gradient from center to edge for glow effect
+                    float intensity = 1.0 - (r * 2.0);
+                    intensity = pow(intensity, 1.5);
+                    
+                    // Apply light reflection
+                    float reflectionBoost = vReflection * 1.5;
+                    
+                    // Base color with reflection
+                    vec3 particleColor = mix(
+                        color * intensity, 
+                        vec3(0.7, 0.9, 1.0) * intensity, 
+                        reflectionBoost
+                    );
+                    
+                    // Add bright highlight for reflected areas
+                    vec3 highlightColor = vec3(0.9, 0.95, 1.0) * pow(reflectionBoost, 2.0) * intensity;
+                    particleColor += highlightColor;
+                    
+                    // Add regular glow
+                    particleColor += vec3(0.2, 0.4, 0.8) * pow(intensity, 5.0); 
+                    
+                    // Add reflection-boosted brightness
+                    float alpha = intensity * (1.0 + reflectionBoost * 0.5);
+                    
+                    gl_FragColor = vec4(particleColor, alpha);
+                }
+            `,
+            transparent: true,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending
+        });
+
+        // Create the particle system
+        const particleSystem = new THREE.Points(particleGeometry, particleMaterial);
+        scene.add(particleSystem);
+
+        // Add subtle ambient light
+        const ambientLight = new THREE.AmbientLight(0x001133);
+        scene.add(ambientLight);
+
+        // Add directional light from top-left
+        const directionalLight = new THREE.DirectionalLight(0x0088ff, 0.8);
+        directionalLight.position.set(-1, 1, 0.5);
+        scene.add(directionalLight);
+
+        // Animation loop
+        const clock = new THREE.Clock();
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // Update time uniform for shader animation
+            particleMaterial.uniforms.time.value = clock.getElapsedTime();
+            
+            // Slowly rotate the entire scene for added dimension
+            particleSystem.rotation.y = clock.getElapsedTime() * 0.05;
+            
+            // Render the scene
+            renderer.render(scene, camera);
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Start animation loop
+        animate();
+    </script>
+</body>
+</html>
