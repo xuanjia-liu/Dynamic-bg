@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamic Background Collection</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Martian+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0a0a0a;
+            --card-bg: #141414;
+            --card-hover-bg: #1a1a1a;
+            --text-color: #f0f0f0;
+            --accent-color: #00f8f1;
+            --secondary-accent: #a900ff;
+            --border-radius: 8px;
+            --card-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Martian Mono', monospace;
+            padding: 2rem;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        header {
+            margin-bottom: 2rem;
+            text-align: center;
+        }
+        
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(90deg, var(--accent-color), var(--secondary-accent));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            display: inline-block;
+        }
+        
+        .description {
+            max-width: 800px;
+            margin: 0 auto;
+            font-size: 1rem;
+            opacity: 0.8;
+        }
+        
+        .card-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        .card {
+            background-color: var(--card-bg);
+            border-radius: var(--border-radius);
+            overflow: hidden;
+            box-shadow: var(--card-shadow);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.7);
+            background-color: var(--card-hover-bg);
+        }
+        
+        .card-preview {
+            width: 100%;
+            height: 180px;
+            overflow: hidden;
+            position: relative;
+            background: #000;
+        }
+        
+        .card-preview::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, rgba(0, 248, 241, 0.15), rgba(169, 0, 255, 0.15));
+            pointer-events: none;
+        }
+        
+        .preview-placeholder {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(45deg, #0a0a0a 25%, #141414 25%, #141414 50%, #0a0a0a 50%, #0a0a0a 75%, #141414 75%);
+            background-size: 20px 20px;
+            animation: gradient-move 3s linear infinite;
+        }
+        
+        @keyframes gradient-move {
+            0% {
+                background-position: 0 0;
+            }
+            100% {
+                background-position: 40px 40px;
+            }
+        }
+        
+        .card-preview iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            transform: scale(1.1);
+            pointer-events: none;
+        }
+        
+        .card-content {
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+        }
+        
+        .card-title {
+            font-size: 1.2rem;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+        }
+        
+        .card-link {
+            margin-top: auto;
+            display: inline-flex;
+            align-items: center;
+            color: var(--accent-color);
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: transform 0.2s ease;
+        }
+        
+        .card-link:hover {
+            transform: translateX(5px);
+        }
+        
+        .card-link::after {
+            content: '→';
+            margin-left: 5px;
+        }
+        
+        footer {
+            margin-top: auto;
+            text-align: center;
+            padding-top: 2rem;
+            font-size: 0.9rem;
+            opacity: 0.7;
+        }
+        
+        @media (max-width: 768px) {
+            body {
+                padding: 1rem;
+            }
+            
+            .card-container {
+                grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+                gap: 1.5rem;
+            }
+            
+            h1 {
+                font-size: 2rem;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .card-container {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Dynamic Background Collection</h1>
+        <p class="description">A showcase of interactive HTML5 animations and simulations.</p>
+    </header>
+    
+    <main class="card-container" id="cardContainer">
+        <!-- Cards will be dynamically generated here -->
+    </main>
+    
+    <footer>
+        <p>© 2023 Dynamic Background Collection</p>
+    </footer>
+    
+    <script>
+        // List of HTML files to exclude
+        const excludeFiles = ['index.html', '.DS_Store'];
+        
+        // Background representation classes for cards that don't use iframes
+        const bgClasses = [
+            'bg-particle', 'bg-black-hole', 'bg-earth', 
+            'bg-wave', 'bg-hexagon', 'bg-nebula'
+        ];
+        
+        // Format filename to readable title
+        function formatTitle(filename) {
+            // Remove .html extension
+            let title = filename.replace('.html', '');
+            
+            // Replace hyphens and underscores with spaces
+            title = title.replace(/[-_]/g, ' ');
+            
+            // Capitalize first letter of each word
+            title = title.split(' ')
+                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                .join(' ');
+                
+            return title;
+        }
+        
+        // Create card element for an HTML file
+        function createCard(filename) {
+            const card = document.createElement('div');
+            card.className = 'card';
+            
+            const preview = document.createElement('div');
+            preview.className = 'card-preview';
+            
+            // Create placeholder for preview
+            const placeholder = document.createElement('div');
+            placeholder.className = 'preview-placeholder';
+            
+            // Add random background class
+            const randomBgClass = bgClasses[Math.floor(Math.random() * bgClasses.length)];
+            placeholder.classList.add(randomBgClass);
+            
+            preview.appendChild(placeholder);
+            card.appendChild(preview);
+            
+            const content = document.createElement('div');
+            content.className = 'card-content';
+            
+            const title = document.createElement('h2');
+            title.className = 'card-title';
+            title.textContent = formatTitle(filename);
+            content.appendChild(title);
+            
+            const link = document.createElement('a');
+            link.className = 'card-link';
+            link.href = filename;
+            link.textContent = 'View Background';
+            link.target = '_blank'; // Open in new tab
+            content.appendChild(link);
+            
+            card.appendChild(content);
+            
+            return card;
+        }
+        
+        // Get all HTML files in the directory
+        function loadCards() {
+            // List of HTML files in the project
+            const htmlFiles = [
+                'hexagon bg.html',
+                'black-hole_whitebg.html',
+                'black-hole_otherver.html',
+                'black-hole.html',
+                'EM-solenoid.html',
+                'earth.html',
+                'general-relativity.html',
+                'improved-particle-wave_3waves.html',
+                'improved-particle-wave.html',
+                'particle-wave.html',
+                'HTML Interactive Nebula Simulation.html'
+            ];
+            
+            const container = document.getElementById('cardContainer');
+            
+            // Create cards for each HTML file
+            htmlFiles.forEach(file => {
+                if (!excludeFiles.includes(file)) {
+                    const card = createCard(file);
+                    container.appendChild(card);
+                }
+            });
+        }
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', loadCards);
+    </script>
+</body>
+</html> 
